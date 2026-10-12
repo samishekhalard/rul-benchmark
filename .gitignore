@@ -1,0 +1,8 @@
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.ipynb_checkpoints/
+data/CMAPSS/*.txt
+results/raw/*.npy
+.DS_Store
