@@ -1,0 +1,15 @@
+{
+  "model": "xgboost",
+  "subset": "FD001",
+  "seed": 1337,
+  "window": 30,
+  "rul_cap": 125,
+  "n_features_flat": 510,
+  "val_rmse": 15.327,
+  "test": {
+    "rmse": 13.893,
+    "mae": 10.777,
+    "r2": 0.8798,
+    "phm_score": 325.0
+  }
+}

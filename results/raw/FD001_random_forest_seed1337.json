@@ -1,0 +1,15 @@
+{
+  "model": "random_forest",
+  "subset": "FD001",
+  "seed": 1337,
+  "window": 30,
+  "rul_cap": 125,
+  "n_features_flat": 510,
+  "val_rmse": 18.403,
+  "test": {
+    "rmse": 15.978,
+    "mae": 11.957,
+    "r2": 0.841,
+    "phm_score": 570.2
+  }
+}

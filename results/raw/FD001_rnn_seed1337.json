@@ -1,0 +1,16 @@
+{
+  "model": "rnn",
+  "subset": "FD001",
+  "seed": 1337,
+  "window": 30,
+  "rul_cap": 125,
+  "parameters": 13697,
+  "train_seconds": 199.9,
+  "val_rmse": 15.248,
+  "test": {
+    "rmse": 15.538,
+    "mae": 10.587,
+    "r2": 0.8497,
+    "phm_score": 718.8
+  }
+}

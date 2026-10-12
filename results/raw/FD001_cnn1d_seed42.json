@@ -1,0 +1,16 @@
+{
+  "model": "cnn1d",
+  "subset": "FD001",
+  "seed": 42,
+  "window": 30,
+  "rul_cap": 125,
+  "parameters": 28417,
+  "train_seconds": 25.2,
+  "val_rmse": 17.768,
+  "test": {
+    "rmse": 18.175,
+    "mae": 14.246,
+    "r2": 0.7943,
+    "phm_score": 574.5
+  }
+}
