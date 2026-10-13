@@ -120,7 +120,7 @@ XGBoost. Объявить победителя по одному прогону 
 ## Запуск
 
 ```bash
-git clone https://github.com/<username>/rul-benchmark.git
+git clone https://github.com/samishekhalard/rul-benchmark.git
 cd rul-benchmark
 pip install -r requirements.txt
 ```
