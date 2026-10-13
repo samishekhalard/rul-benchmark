@@ -1,0 +1,19 @@
+{
+  "model": "cnn",
+  "subset": "FD001",
+  "seed": 2024,
+  "split_by": "unit",
+  "protocol": {
+    "window": 30,
+    "rul_cap": 125,
+    "val_fraction": 0.2,
+    "split_by": "unit"
+  },
+  "n_params": 32961,
+  "train_time_s": 48.5,
+  "val_rmse": 20.3023,
+  "rmse": 20.2913,
+  "mae": 16.1706,
+  "r2": 0.7616,
+  "phm_score": 929.3403
+}

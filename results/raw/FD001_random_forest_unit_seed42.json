@@ -1,0 +1,19 @@
+{
+  "model": "random_forest",
+  "subset": "FD001",
+  "seed": 42,
+  "split_by": "unit",
+  "protocol": {
+    "window": 30,
+    "rul_cap": 125,
+    "val_fraction": 0.2,
+    "split_by": "unit"
+  },
+  "n_params": 200,
+  "train_time_s": 73.85,
+  "val_rmse": 17.0679,
+  "rmse": 17.6522,
+  "mae": 13.2724,
+  "r2": 0.8196,
+  "phm_score": 724.6031
+}

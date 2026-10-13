@@ -14,10 +14,6 @@ env/
 data/*.txt
 data/*.zip
 
-# Results — generated, not tracked except README
-results/raw/
-results/RESULTS.md
-
 # Models / checkpoints
 *.pt
 *.pth

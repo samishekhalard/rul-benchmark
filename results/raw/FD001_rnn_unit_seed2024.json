@@ -1,0 +1,19 @@
+{
+  "model": "rnn",
+  "subset": "FD001",
+  "seed": 2024,
+  "split_by": "unit",
+  "protocol": {
+    "window": 30,
+    "rul_cap": 125,
+    "val_fraction": 0.2,
+    "split_by": "unit"
+  },
+  "n_params": 32993,
+  "train_time_s": 21.02,
+  "val_rmse": 15.4091,
+  "rmse": 17.2936,
+  "mae": 12.6258,
+  "r2": 0.8268,
+  "phm_score": 728.9142
+}

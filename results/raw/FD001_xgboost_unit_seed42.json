@@ -1,0 +1,19 @@
+{
+  "model": "xgboost",
+  "subset": "FD001",
+  "seed": 42,
+  "split_by": "unit",
+  "protocol": {
+    "window": 30,
+    "rul_cap": 125,
+    "val_fraction": 0.2,
+    "split_by": "unit"
+  },
+  "n_params": 300,
+  "train_time_s": 3.63,
+  "val_rmse": 15.3049,
+  "rmse": 15.3153,
+  "mae": 11.9208,
+  "r2": 0.8642,
+  "phm_score": 343.9274
+}

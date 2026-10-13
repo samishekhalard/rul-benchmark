@@ -1,0 +1,19 @@
+{
+  "model": "gru",
+  "subset": "FD001",
+  "seed": 2024,
+  "split_by": "unit",
+  "protocol": {
+    "window": 30,
+    "rul_cap": 125,
+    "val_fraction": 0.2,
+    "split_by": "unit"
+  },
+  "n_params": 53993,
+  "train_time_s": 24.4,
+  "val_rmse": 13.6853,
+  "rmse": 15.0957,
+  "mae": 11.052,
+  "r2": 0.868,
+  "phm_score": 406.2767
+}
