@@ -299,10 +299,6 @@ following papers:
    LSTM Neural Networks». 37th DAAAM International Symposium on Intelligent
    Manufacturing and Automation, Vienna, 2026.
 
-> **Note:** these are the official citation strings. The English title in
-> item 1 is a working translation; confirm the official English title before
-> citing.
-
 ---
 
 ## Data
