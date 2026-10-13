@@ -1,20 +1,41 @@
 #!/usr/bin/env bash
-# Полный прогон бенчмарка: 4 нейросетевые архитектуры и 2 базовые модели
-# на трёх сидах. На CPU занимает несколько часов, на GPU — около получаса.
+# Run the full benchmark: all models × FD001, seeds 42/1337/2024.
+# Each model is trained three times (once per seed) via train.py's default
+# seed loop.  Adjust --epochs and --patience for a full vs. smoke run.
+
 set -euo pipefail
 
-SUBSET="${1:-FD001}"
+DATA_DIR="${1:-data}"
+EPOCHS="${2:-100}"
+SUBSET="FD001"
 
-for seed in 42 1337 2024; do
-  for model in lstm gru cnn1d rnn; do
-    echo "=== $model | $SUBSET | seed $seed ==="
-    python -m src.train --model "$model" --subset "$SUBSET" --seed "$seed"
-  done
-  for model in xgboost random_forest; do
-    echo "=== $model | $SUBSET | seed $seed ==="
-    python -m src.baselines --model "$model" --subset "$SUBSET" --seed "$seed"
-  done
+MODELS_NEURAL=(lstm gru cnn rnn)
+MODELS_BASELINE=(xgboost random_forest)
+
+echo "=== RUL Benchmark — subset ${SUBSET} ==="
+echo "Data dir : ${DATA_DIR}"
+echo "Epochs   : ${EPOCHS}"
+echo ""
+
+for model in "${MODELS_NEURAL[@]}"; do
+    echo "--- Neural: ${model} ---"
+    python src/train.py \
+        --model "${model}" \
+        --subset "${SUBSET}" \
+        --data-dir "${DATA_DIR}" \
+        --epochs "${EPOCHS}" \
+        --patience 15
 done
 
-python -m src.report --results-dir results/raw --out results/RESULTS.md
-echo "Готово. Таблица: results/RESULTS.md"
+for model in "${MODELS_BASELINE[@]}"; do
+    echo "--- Baseline: ${model} ---"
+    python src/train.py \
+        --model "${model}" \
+        --subset "${SUBSET}" \
+        --data-dir "${DATA_DIR}"
+done
+
+echo ""
+echo "=== Generating report ==="
+python src/report.py --results-dir results/raw --output results/RESULTS.md
+echo "Done. See results/RESULTS.md"

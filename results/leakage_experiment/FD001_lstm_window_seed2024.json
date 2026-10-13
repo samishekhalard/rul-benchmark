@@ -1,0 +1,19 @@
+{
+  "model": "lstm",
+  "subset": "FD001",
+  "seed": 2024,
+  "split_by": "window",
+  "protocol": {
+    "window": 30,
+    "rul_cap": 125,
+    "val_fraction": 0.2,
+    "split_by": "window"
+  },
+  "n_params": 57153,
+  "train_time_s": 105.84,
+  "val_rmse": 3.2935,
+  "rmse": 19.4127,
+  "mae": 14.6595,
+  "r2": 0.7818,
+  "phm_score": 769.6416
+}

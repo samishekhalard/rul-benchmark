@@ -1,9 +1,9 @@
 """
-Обучение и оценка одной модели по единому протоколу.
+Training script for neural RUL models.
 
-Запуск:
-    python -m src.train --model lstm --subset FD001
-    python -m src.train --model cnn1d --subset FD001 --epochs 80
+Usage:
+    python src/train.py --model lstm --subset FD001 --data-dir data/ --epochs 100
+    python src/train.py --model xgboost --subset FD001 --data-dir data/
 """
 
 from __future__ import annotations
@@ -16,143 +16,228 @@ from pathlib import Path
 
 import numpy as np
 import torch
-import torch.nn as nn
+from torch import nn
 from torch.utils.data import DataLoader, TensorDataset
 
-from src.data import load_dataset
-from src.metrics import evaluate_all
-from src.models import build_model, count_parameters
+from baselines import build_baseline, predict_baseline, train_baseline
+from data import prepare_dataset
+from metrics import compute_all
+from models import build_model, count_parameters
+
+NEURAL_MODELS = {"lstm", "gru", "cnn", "rnn"}
+BASELINE_MODELS = {"xgboost", "xgb", "random_forest", "rf"}
 
 
-def set_seed(seed: int) -> None:
-    """Фиксация всех источников случайности — иначе сравнение не воспроизводится."""
+def fix_seed(seed: int) -> None:
+    """Fix all sources of randomness for reproducibility."""
     random.seed(seed)
     np.random.seed(seed)
     torch.manual_seed(seed)
     torch.cuda.manual_seed_all(seed)
+    # Deterministic cuDNN ops (may slow training slightly)
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = False
 
 
-def make_loader(x: np.ndarray, y: np.ndarray, batch_size: int, shuffle: bool) -> DataLoader:
-    dataset = TensorDataset(torch.from_numpy(x).float(), torch.from_numpy(y).float())
-    return DataLoader(dataset, batch_size=batch_size, shuffle=shuffle, drop_last=False)
-
-
-@torch.no_grad()
-def predict(model: nn.Module, loader: DataLoader, device: torch.device) -> np.ndarray:
-    model.eval()
-    outputs = []
-    for batch_x, _ in loader:
-        outputs.append(model(batch_x.to(device)).cpu().numpy())
-    return np.concatenate(outputs)
-
-
-def run(args: argparse.Namespace) -> dict:
-    set_seed(args.seed)
+def train_neural(args, data: dict, seed: int, results_dir: Path) -> dict:
+    fix_seed(seed)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-    dataset = load_dataset(
-        data_dir=args.data_dir,
-        subset=args.subset,
-        window=args.window,
-        rul_cap=args.rul_cap,
-        val_fraction=args.val_fraction,
-        seed=args.seed,
+    n_features = data["X_train"].shape[2]
+    model = build_model(args.model, n_features=n_features).to(device)
+    n_params = count_parameters(model)
+
+    X_tr = torch.from_numpy(data["X_train"])
+    y_tr = torch.from_numpy(data["y_train"])
+    X_val = torch.from_numpy(data["X_val"]).to(device)
+    X_test = torch.from_numpy(data["X_test"]).to(device)
+
+    loader = DataLoader(
+        TensorDataset(X_tr, y_tr),
+        batch_size=args.batch_size,
+        shuffle=True,
     )
 
-    train_loader = make_loader(dataset.x_train, dataset.y_train, args.batch_size, shuffle=True)
-    val_loader = make_loader(dataset.x_val, dataset.y_val, args.batch_size, shuffle=False)
-    test_loader = make_loader(dataset.x_test, dataset.y_test, args.batch_size, shuffle=False)
-
-    model = build_model(args.model, n_features=dataset.n_features).to(device)
-    optimizer = torch.optim.Adam(model.parameters(), lr=args.lr)
-    scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(optimizer, patience=5, factor=0.5)
     criterion = nn.MSELoss()
+    optimizer = torch.optim.Adam(model.parameters(), lr=args.lr)
+    scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
+        optimizer, patience=5, factor=0.5
+    )
 
-    best_val = float("inf")
+    best_val_rmse = float("inf")
     best_state = None
-    epochs_without_improvement = 0
-    started = time.time()
+    patience_counter = 0
+    t_start = time.time()
 
     for epoch in range(1, args.epochs + 1):
         model.train()
-        running = 0.0
-        for batch_x, batch_y in train_loader:
-            batch_x, batch_y = batch_x.to(device), batch_y.to(device)
+        for xb, yb in loader:
+            xb, yb = xb.to(device), yb.to(device)
             optimizer.zero_grad()
-            loss = criterion(model(batch_x), batch_y)
+            loss = criterion(model(xb), yb)
             loss.backward()
-            torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
+            nn.utils.clip_grad_norm_(model.parameters(), args.grad_clip)
             optimizer.step()
-            running += loss.item() * len(batch_x)
 
-        train_loss = running / len(train_loader.dataset)
-        val_pred = predict(model, val_loader, device)
-        val_rmse = float(np.sqrt(np.mean((dataset.y_val - val_pred) ** 2)))
+        model.eval()
+        with torch.no_grad():
+            val_pred = model(X_val).cpu().numpy()
+        val_rmse = float(np.sqrt(((val_pred - data["y_val"]) ** 2).mean()))
         scheduler.step(val_rmse)
 
-        if val_rmse < best_val - 1e-4:
-            best_val = val_rmse
-            best_state = {k: v.detach().cpu().clone() for k, v in model.state_dict().items()}
-            epochs_without_improvement = 0
+        if val_rmse < best_val_rmse:
+            best_val_rmse = val_rmse
+            best_state = {k: v.cpu().clone() for k, v in model.state_dict().items()}
+            patience_counter = 0
         else:
-            epochs_without_improvement += 1
+            patience_counter += 1
+            if patience_counter >= args.patience:
+                break
 
-        if epoch % 5 == 0 or epoch == 1:
-            print(
-                f"epoch {epoch:3d} | train mse {train_loss:8.2f} | "
-                f"val rmse {val_rmse:6.2f} | best {best_val:6.2f}"
-            )
+    elapsed = time.time() - t_start
 
-        if epochs_without_improvement >= args.patience:
-            print(f"Ранняя остановка на эпохе {epoch}: валидация не улучшается {args.patience} эпох")
-            break
+    # Restore best weights and predict on test set
+    model.load_state_dict(best_state)
+    model.eval()
+    with torch.no_grad():
+        test_pred = model(X_test).cpu().numpy()
 
-    if best_state is not None:
-        model.load_state_dict(best_state)
-
-    elapsed = time.time() - started
-    test_pred = predict(model, test_loader, device)
-    metrics = evaluate_all(dataset.y_test, test_pred)
+    metrics = compute_all(data["y_test"], test_pred)
 
     result = {
         "model": args.model,
         "subset": args.subset,
-        "seed": args.seed,
-        "window": args.window,
-        "rul_cap": args.rul_cap,
-        "parameters": count_parameters(model),
-        "train_seconds": round(elapsed, 1),
-        "val_rmse": round(best_val, 3),
-        "test": metrics,
+        "seed": seed,
+        "split_by": args.split_by,
+        "protocol": {
+            "window": args.window,
+            "rul_cap": args.rul_cap,
+            "val_fraction": 0.2,
+            "split_by": args.split_by,
+        },
+        "n_params": n_params,
+        "train_time_s": round(elapsed, 2),
+        "val_rmse": round(best_val_rmse, 4),
+        **{k: round(v, 4) for k, v in metrics.items()},
     }
 
-    results_dir = Path(args.results_dir)
+    tag = f"{args.subset}_{args.model}_{args.split_by}_seed{seed}"
     results_dir.mkdir(parents=True, exist_ok=True)
-    out_path = results_dir / f"{args.subset}_{args.model}_seed{args.seed}.json"
-    out_path.write_text(json.dumps(result, indent=2, ensure_ascii=False), encoding="utf-8")
+    with open(results_dir / f"{tag}.json", "w") as f:
+        json.dump(result, f, indent=2)
+    np.save(results_dir / f"{tag}_preds.npy", test_pred)
 
-    np.save(results_dir / f"{args.subset}_{args.model}_seed{args.seed}_pred.npy", test_pred)
-
-    print(json.dumps(result, indent=2, ensure_ascii=False))
     return result
 
 
-def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Обучение модели прогноза RUL на C-MAPSS")
-    parser.add_argument("--model", default="lstm", choices=["lstm", "gru", "cnn1d", "rnn"])
-    parser.add_argument("--subset", default="FD001", choices=["FD001", "FD002", "FD003", "FD004"])
-    parser.add_argument("--data-dir", default="data/CMAPSS")
-    parser.add_argument("--results-dir", default="results/raw")
-    parser.add_argument("--window", type=int, default=30)
-    parser.add_argument("--rul-cap", type=int, default=125)
-    parser.add_argument("--val-fraction", type=float, default=0.2)
-    parser.add_argument("--batch-size", type=int, default=256)
-    parser.add_argument("--epochs", type=int, default=100)
-    parser.add_argument("--patience", type=int, default=15)
-    parser.add_argument("--lr", type=float, default=1e-3)
-    parser.add_argument("--seed", type=int, default=42)
-    return parser.parse_args()
+def train_baseline_model(args, data: dict, seed: int, results_dir: Path) -> dict:
+    fix_seed(seed)
+    t_start = time.time()
+
+    model = build_baseline(args.model, seed=seed)
+    train_baseline(model, data["X_train"], data["y_train"])
+    elapsed = time.time() - t_start
+
+    val_pred = predict_baseline(model, data["X_val"])
+    val_rmse = float(np.sqrt(((val_pred - data["y_val"]) ** 2).mean()))
+
+    test_pred = predict_baseline(model, data["X_test"])
+    metrics = compute_all(data["y_test"], test_pred)
+
+    # Tree models don't have trainable parameters in the PyTorch sense
+    n_params = getattr(model, "n_estimators", 0) or 0
+
+    result = {
+        "model": args.model,
+        "subset": args.subset,
+        "seed": seed,
+        "split_by": args.split_by,
+        "protocol": {
+            "window": args.window,
+            "rul_cap": args.rul_cap,
+            "val_fraction": 0.2,
+            "split_by": args.split_by,
+        },
+        "n_params": n_params,
+        "train_time_s": round(elapsed, 2),
+        "val_rmse": round(val_rmse, 4),
+        **{k: round(v, 4) for k, v in metrics.items()},
+    }
+
+    tag = f"{args.subset}_{args.model}_{args.split_by}_seed{seed}"
+    results_dir.mkdir(parents=True, exist_ok=True)
+    with open(results_dir / f"{tag}.json", "w") as f:
+        json.dump(result, f, indent=2)
+    np.save(results_dir / f"{tag}_preds.npy", test_pred)
+
+    return result
+
+
+def parse_args():
+    p = argparse.ArgumentParser(description="Train a RUL prediction model on C-MAPSS")
+    p.add_argument("--model", required=True, help="lstm | gru | cnn | rnn | xgboost | random_forest")
+    p.add_argument("--subset", default="FD001", help="C-MAPSS subset (FD001–FD004)")
+    p.add_argument("--data-dir", default="data", help="Directory with C-MAPSS .txt files")
+    p.add_argument("--window", type=int, default=30)
+    p.add_argument("--rul-cap", type=int, default=125)
+    p.add_argument("--epochs", type=int, default=100)
+    p.add_argument("--patience", type=int, default=15)
+    p.add_argument("--lr", type=float, default=1e-3)
+    p.add_argument("--batch-size", type=int, default=256)
+    p.add_argument("--grad-clip", type=float, default=1.0)
+    p.add_argument("--seed", type=int, default=None,
+                   help="Single seed. Omit to run all three protocol seeds.")
+    p.add_argument(
+        "--split-by",
+        default="unit",
+        choices=["unit", "window"],
+        help=(
+            "Train/val split strategy. "
+            "'unit' (default) is correct (Protocol §2). "
+            "'window' is METHODOLOGICALLY INCORRECT and exists only for the "
+            "leakage experiment (scripts/leakage_experiment.sh)."
+        ),
+    )
+    p.add_argument("--results-dir", default="results/raw")
+    return p.parse_args()
+
+
+def main():
+    args = parse_args()
+    seeds = [args.seed] if args.seed is not None else [42, 1337, 2024]
+    results_dir = Path(args.results_dir)
+
+    data = prepare_dataset(
+        data_dir=args.data_dir,
+        subset=args.subset,
+        window=args.window,
+        rul_cap=args.rul_cap,
+        seed=seeds[0],  # split seed; kept constant across model seeds
+        split_by=args.split_by,
+    )
+
+    if args.split_by == "window":
+        print(
+            "WARNING: --split-by window is METHODOLOGICALLY INCORRECT. "
+            "Val RMSE will be artificially low due to leakage. "
+            "Use only for the leakage experiment."
+        )
+
+    model_name = args.model.lower()
+    for seed in seeds:
+        print(f"\n[{args.model}] subset={args.subset} seed={seed}")
+        if model_name in NEURAL_MODELS:
+            result = train_neural(args, data, seed, results_dir)
+        elif model_name in BASELINE_MODELS:
+            result = train_baseline_model(args, data, seed, results_dir)
+        else:
+            raise ValueError(f"Unknown model '{args.model}'")
+        print(
+            f"  RMSE={result['rmse']:.2f}  MAE={result['mae']:.2f}"
+            f"  R²={result['r2']:.3f}  PHM={result['phm_score']:.1f}"
+            f"  time={result['train_time_s']:.1f}s"
+        )
 
 
 if __name__ == "__main__":
-    run(parse_args())
+    main()

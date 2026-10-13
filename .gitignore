@@ -1,8 +1,40 @@
+# Python
 __pycache__/
 *.py[cod]
+*.egg-info/
+dist/
+build/
+.eggs/
+*.egg
 .venv/
 venv/
+env/
+
+# Data — never commit raw C-MAPSS files
+data/*.txt
+data/*.zip
+
+# Results — generated, not tracked except README
+results/raw/
+results/RESULTS.md
+
+# Models / checkpoints
+*.pt
+*.pth
+*.npy
+
+# Jupyter
 .ipynb_checkpoints/
-data/CMAPSS/*.txt
-results/raw/*.npy
+*.ipynb
+
+# OS
 .DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+*.swp
+
+# Ruff / linting
+.ruff_cache/
